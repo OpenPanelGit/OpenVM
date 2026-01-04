@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>OpenWin | Installation</title>
+    <link rel="stylesheet" href="/shared/style.css">
+</head>
+
+<body style="display:flex; align-items:center; justify-content:center; min-height:100vh;">
+    <div class="card" style="width:450px;">
+        <h1>OpenWin Setup</h1>
+        <p style="color:var(--text-muted); margin-bottom:20px;">Créez votre compte administrateur principal.</p>
+        <form id="setup">
+            <label>Nom d'administrateur</label>
+            <input type="text" name="username" placeholder="admin" required>
+            <label>Mot de passe</label>
+            <input type="password" name="password" placeholder="••••••••" required>
+            <button type="submit" class="btn btn-primary" style="width:100%; margin-top:20px;">Finaliser
+                l'installation</button>
+        </form>
+    </div>
+    <script>
+        document.getElementById('setup').onsubmit = async (e) => {
+            e.preventDefault();
+            const data = Object.fromEntries(new FormData(e.target));
+            await fetch('/api/install', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            alert('Installation réussie ! Connectez-vous maintenant.');
+            window.location.href = '/user-panel';
+        };
+    </script>
+</body>
+
+</html>

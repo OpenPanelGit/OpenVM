@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <title>OpenWin | Instance Management</title>
+    <link rel="stylesheet" href="/shared/style.css">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        .terminal {
+            background: #000;
+            color: #00ff00;
+            font-family: 'Courier New', monospace;
+            padding: 20px;
+            height: 400px;
+            overflow-y: auto;
+            border-radius: 0 0 8px 8px;
+            line-height: 1.4;
+            font-size: 0.85rem;
+        }
+
+        .console-header {
+            background: #1a242f;
+            padding: 10px 15px;
+            border-radius: 8px 8px 0 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #243447;
+        }
+
+        .power-btn {
+            padding: 6px 12px;
+            font-size: 0.8rem;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="layout">
+        <div class="sidebar">
+            <h1 style="font-size:1.5rem; margin-bottom: 30px; letter-spacing:-1px;">OpenWin</h1>
+            <nav>
+                <a href="#" class="nav-item active" onclick="showView('vms')">Mes Serveurs</a>
+                <a href="#" class="nav-item" onclick="showView('net')">Réseau</a>
+                <a href="/admin-panel" id="adminLink" class="nav-item"
+                    style="display:none; color:var(--primary); font-weight:700;">Admin CP</a>
+                <a href="#" class="nav-item" onclick="logout()">Déconnexion</a>
+            </nav>
+        </div>
+        <main class="main">
+            <div id="view-vms">
+                <header style="display:flex; justify-content:space-between; align-items:center; margin-bottom:30px;">
+                    <h1>Mes Instances Windows</h1>
+                    <div id="loading" style="display:none; font-size:0.8rem; color:var(--primary);">Actualisation...
+                    </div>
+                </header>
+                <div id="vmList"
+                    style="display:grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap:20px;"></div>
+            </div>
+
+            <div id="view-console" style="display:none;">
+                <header style="margin-bottom:30px; display:flex; justify-content:space-between; align-items:center;">
+                    <h1 id="consoleTitle">Console</h1>
+                    <button class="btn btn-outline" onclick="showView('vms')">Retour</button>
+                </header>
+                <div class="console-header">
+                    <div style="color:var(--text-muted); font-size:0.85rem;">Flux Hyper-V direct</div>
+                    <div style="display:flex; gap:10px;">
+                        <button class="btn btn-primary power-btn" onclick="controlVM(currentVM, 'start')"><i
+                                data-lucide="play"></i> Démarrer</button>
+                        <button class="btn btn-outline power-btn" onclick="controlVM(currentVM, 'restart')"
+                            style="color:#ffc107;"><i data-lucide="refresh-cw"></i> Reboot</button>
+                        <button class="btn btn-outline power-btn" onclick="controlVM(currentVM, 'stop')"
+                            style="color:var(--danger); border-color:var(--danger);"><i data-lucide="power"></i>
+                            Kill</button>
+                        <button class="btn btn-primary" onclick="downloadRDP(currentVM)"
+                            style="background:#2563eb;">Ouvrir Bureau (RDP)</button>
+                    </div>
+                </div>
+                <div id="terminal" class="terminal"></div>
+            </div>
+
+            <div id="view-net" style="display:none;">
+                <h1>Réseau & IP</h1>
+                <div id="netList" style="margin-top:20px;"></div>
+            </div>
+        </main>
+    </div>
+
+    <div id="loginModal"
+        style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.9); align-items:center; justify-content:center; z-index:1000;">
+        <div class="card" style="width:400px;">
+            <h2>Connexion OpenWin</h2>
+            <form id="loginForm">
+                <label>Username</label><input type="text" name="username" required>
+                <label>Password</label><input type="password" name="password" required>
+                <button type="submit" class="btn btn-primary" style="width:100%; margin-top:20px;">Se connecter</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        let activeView = "vms"; // On suit la vue active
+        let currentVM = "";
+        const token = localStorage.getItem('token');
+        if (!token) document.getElementById('loginModal').style.display = 'flex';
+
+        function showView(view) {
+            activeView = view;
+            ['vms', 'console', 'net'].forEach(v => document.getElementById('view-' + v).style.display = 'none');
+            document.getElementById('view-' + view).style.display = 'block';
+            if (view === 'vms') fetchVMs();
+            if (view === 'net') fetchNetwork();
+        }
+
+        async function fetchVMs() {
+            document.getElementById('loading').style.display = 'block';
+            const r = await fetch('/api/vms', { headers: { 'Authorization': `Bearer ${token}` } });
+            const vms = await r.json();
+            const list = document.getElementById('vmList');
+            list.innerHTML = vms.map(vm => {
+                if (vm.error) {
+                    return `
+                        <div class="card" style="border-color:var(--danger); grid-column: 1/-1;">
+                            <h3 style="color:var(--danger)">⚠️ Erreur de Permissions Hyper-V</h3>
+                            <p style="font-size:0.85rem; margin-top:10px;">${vm.error}</p>
+                            <p style="font-size:0.85rem; color:var(--text-muted); margin-top:10px;">
+                                <strong>Solution :</strong> Ton terminal n'est PAS réellement en Admin. 
+                                Ferme tout, fais un clic droit sur ton Terminal ou VS Code et choisis <strong>"Exécuter en tant qu'administrateur"</strong>.
+                            </p>
+                        </div>
+                    `;
+                }
+                return `
+                <div class="card">
+                    <div style="display:flex; justify-content:space-between; align-items:start; margin-bottom:15px;">
+                        <div>
+                            <h3 style="margin:0;">${vm.name}</h3>
+                            <span class="status-badge status-${vm.status}">${vm.status}</span>
+                            <span style="font-size:0.7rem; color:var(--text-muted); margin-left:10px;">${vm.os.toUpperCase()}</span>
+                        </div>
+                        <i data-lucide="monitor" style="color:var(--primary)"></i>
+                    </div>
+                    <div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:20px;">
+                        RAM: ${vm.memory || 0} MB | IP: ${vm.ip}
+                    </div>
+                    <div style="display:flex; gap:10px; flex-wrap: wrap;">
+                        <button class="btn btn-primary" style="flex:1; min-width:120px;" onclick="openConsole('${vm.name}')">Console</button>
+                        <button class="btn btn-outline" style="flex:1; min-width:80px;" onclick="downloadRDP('${vm.name}')">Bureau (RDP)</button>
+                        ${vm.os !== 'windows' ? `
+                            <button class="btn btn-outline" style="flex:1; min-width:80px; border-color:#aaa;" onclick="copySSH('${vm.ip}')">SSH</button>
+                            <button class="btn btn-outline" style="flex:1; min-width:140px; border-color:var(--primary); color:var(--primary);" onclick="autoSetupLinux('${vm.name}', '${vm.ip}', '${vm.tempPass}')">✨ Auto-Setup Desktop</button>
+                        ` : ''}
+                    </div>
+                </div>
+            `}).join('') || '<div class="card">Aucune VM.</div>';
+            lucide.createIcons();
+            document.getElementById('loading').style.display = 'none';
+        }
+
+        async function controlVM(name, action) {
+            const btn = event.target.closest('button');
+            const originalText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = 'En cours...';
+
+            const r = await fetch('/api/vms/control', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ name, action })
+            });
+            const res = await r.json();
+            if (res.error) alert("ERREUR : " + res.error);
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+            if (currentVM === name) appendLog(`[ACTION] Demande d'exécution : ${action.toUpperCase()}`);
+            fetchVMs();
+        }
+
+        function openConsole(name) {
+            currentVM = name;
+            showView('console');
+            document.getElementById('consoleTitle').innerText = "Instance : " + name;
+            const term = document.getElementById('terminal');
+            term.innerHTML = `
+                <div id="vm-screen-container" style="margin-bottom:15px; text-align:center; background:#111; border-radius:4px; overflow:hidden; position:relative; cursor:crosshair;">
+                    <canvas id="vm-canvas" width="800" height="600" style="max-width:100%; height:auto; display:none; border:1px solid #333;"></canvas>
+                    <div id="screen-loader" style="padding:100px; color:#555;">🚀 Initialisation de l'accès Shadow...</div>
+                </div>
+                <div id="logs" style="color:#00ff00; font-family:monospace; height:150px; overflow-y:auto; background:#111; padding:10px; border-radius:4px;">[SYSTEM] Shadow Link actif...</div>
+            `;
+
+            const canvas = document.getElementById('vm-canvas');
+            const ctx = canvas.getContext('2d');
+            const ws = new WebSocket(`ws://${location.host}/api/console/${name}`);
+
+            ws.onmessage = (e) => {
+                const data = JSON.parse(e.data);
+                if (data.type === 'status') appendLog(data.data);
+                if (data.type === 'screen') {
+                    const img = new Image();
+                    img.onload = () => {
+                        ctx.drawImage(img, 0, 0, 800, 600);
+                        canvas.style.display = 'inline-block';
+                        document.getElementById('screen-loader').style.display = 'none';
+                    };
+                    img.src = 'data:image/png;base64,' + data.data;
+                }
+            };
+
+            canvas.onclick = (e) => {
+                const rect = canvas.getBoundingClientRect();
+                const x = Math.floor(((e.clientX - rect.left) / rect.width) * 65535);
+                const y = Math.floor(((e.clientY - rect.top) / rect.height) * 65535);
+                ws.send(JSON.stringify({ type: 'input', action: 'mouse', data: { x, y, click: 'left' } }));
+            };
+
+            window.onkeydown = (e) => {
+                if (activeView !== 'console') return;
+                ws.send(JSON.stringify({ type: 'input', action: 'key', data: { keyCode: e.keyCode } }));
+            };
+        }
+
+        function appendLog(txt) {
+            const term = document.getElementById('logs');
+            const line = document.createElement('div');
+            line.innerHTML = `<span style="color:#555;">[${new Date().toLocaleTimeString()}]</span> ${txt}`;
+            term.appendChild(line);
+            term.scrollTop = term.scrollHeight;
+        }
+
+        function downloadRDP(name) {
+            // On cherche l'IP dans les données locales ou on génère le fichier avec l'IP réelle
+            const cards = document.querySelectorAll('.card');
+            let ip = '127.0.0.1';
+            cards.forEach(c => {
+                if (c.innerHTML.includes(name)) {
+                    const match = c.innerHTML.match(/IP: ([^ |<]+)/);
+                    if (match) ip = match[1];
+                }
+            });
+
+            if (ip === 'N/A' || ip === 'Attente IP...') {
+                const manualIP = prompt("L'IP automatique n'est pas encore détectée par Hyper-V. Si vous la connaissez, entrez-la ici (ex: 172.x.x.x) ou attendez que la VM ait fini de démarrer :", "");
+                if (manualIP) ip = manualIP;
+                else return;
+            }
+
+            // Petit message d'aide pour Linux
+            let isLinux = false;
+            cards.forEach(c => { if (c.innerHTML.includes(name) && c.innerHTML.includes('UBUNTU')) isLinux = true; });
+            if (isLinux) {
+                alert("💡 ASTUCE UBUNTU :\nPour que le bureau s'affiche en RDP, tu DOIS avoir installé 'xrdp' dans ta VM :\n1. Ouvre la Console\n2. Tape: sudo apt update && sudo apt install xrdp -y");
+            }
+
+            const rdp = `full address:s:${ip}\nprompt for credentials:i:1\nusername:s:Administrator\nscreen mode id:i:2\nauthentication level:i:2`;
+            const blob = new Blob([rdp], { type: 'application/rdp' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = `${name}.rdp`; a.click();
+            window.URL.revokeObjectURL(url);
+        }
+
+        async function autoSetupLinux(name, ip, pass) {
+            if (ip === 'N/A') return alert("Attendez que la VM ait une IP (fin du boot).");
+            if (!confirm("✨ Lancer l'installation AUTOMATIQUE du bureau Ubuntu ?\n\nCela va :\n1. Se connecter en SSH\n2. Installer xrdp (RDP)\n3. Configurer le bureau\n\nLaisse la console ouverte pour voir la progression !")) return;
+
+            openConsole(name);
+            appendLog("[AUTO-SETUP] Lancement de l'installation du bureau...");
+
+            const r = await fetch('/api/vms/setup-linux', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ name, ip, pass })
+            });
+            const res = await r.json();
+            if (res.error) appendLog("[ERREUR] " + res.error);
+            else appendLog("[SUCCÈS] Installation lancée ! Attends 2-3 minutes que ça finisse.");
+        }
+
+        function copySSH(ip) {
+            if (ip === 'N/A') return alert("Attendez que la VM ait booté pour avoir l'IP.");
+            const cmd = `ssh root@${ip}`;
+            navigator.clipboard.writeText(cmd);
+            alert("Commande copiée : " + cmd);
+        }
+
+        async function fetchNetwork() {
+            const r = await fetch('/api/vms', { headers: { 'Authorization': `Bearer ${token}` } });
+            const vms = await r.json();
+            document.getElementById('netList').innerHTML = vms.map(vm => `
+                <div class="card" style="display:flex; justify-content:space-between; align-items:center;">
+                    <strong>${vm.name}</strong>
+                    <code>${vm.ip} : 3389 (RDP)</code>
+                </div>
+            `).join('');
+        }
+
+        function logout() { localStorage.clear(); location.reload(); }
+
+        document.getElementById('loginForm').onsubmit = async (e) => {
+            e.preventDefault();
+            const r = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(Object.fromEntries(new FormData(e.target)))
+            });
+            const res = await r.json();
+            if (res.token) {
+                localStorage.setItem('token', res.token);
+                localStorage.setItem('role', res.role);
+                location.reload();
+            } else alert(res.error);
+        };
+
+        if (token) {
+            if (localStorage.getItem('role') === 'admin') document.getElementById('adminLink').style.display = 'block';
+            showView('vms');
+        }
+        lucide.createIcons();
+    </script>
+</body>
+
+</html>
