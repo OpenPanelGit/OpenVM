@@ -1,4 +1,4 @@
-## 🛑 État du projet
+# 🛑 État du projet
 
 > **Projet terminé / abandonné**
 
